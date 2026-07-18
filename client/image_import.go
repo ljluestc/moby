@@ -2,11 +2,19 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"io"
+	"net/http"
 	"net/url"
 
 	"github.com/distribution/reference"
 )
+
+// importSrcHeadersKey is the HTTP request header used to forward custom source
+// URL headers from the client to the daemon during image import.
+// The value is a base64-encoded JSON-marshalled map[string][]string.
+const importSrcHeadersKey = "X-Import-Src-Headers"
 
 // ImageImportResult holds the response body returned by the daemon for image import.
 type ImageImportResult interface {
@@ -46,7 +54,16 @@ func (cli *Client) ImageImport(ctx context.Context, source ImageImportSource, re
 		query.Add("changes", change)
 	}
 
-	resp, err := cli.postRaw(ctx, "/images/create", query, source.Source, nil)
+	var headers http.Header
+	if len(options.SourceHeaders) > 0 && source.SourceName != "-" {
+		encoded, err := encodeImportSrcHeaders(options.SourceHeaders)
+		if err != nil {
+			return nil, err
+		}
+		headers = http.Header{importSrcHeadersKey: []string{encoded}}
+	}
+
+	resp, err := cli.postRaw(ctx, "/images/create", query, source.Source, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -64,3 +81,26 @@ var (
 	_ io.ReadCloser     = (*imageImportResult)(nil)
 	_ ImageImportResult = (*imageImportResult)(nil)
 )
+
+// encodeImportSrcHeaders serialises a map[string][]string as base64-encoded
+// JSON for transmission in the X-Import-Src-Headers request header.
+func encodeImportSrcHeaders(headers map[string][]string) (string, error) {
+	b, err := json.Marshal(headers)
+	if err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// decodeImportSrcHeaders is the inverse of encodeImportSrcHeaders.
+func decodeImportSrcHeaders(encoded string) (map[string][]string, error) {
+	b, err := base64.URLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+	var headers map[string][]string
+	if err := json.Unmarshal(b, &headers); err != nil {
+		return nil, err
+	}
+	return headers, nil
+}

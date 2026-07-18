@@ -2,6 +2,8 @@ package image
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -138,7 +140,19 @@ func (ir *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrit
 				return errdefs.InvalidParameter(err)
 			}
 
-			resp, err := remotecontext.GetWithStatusError(u.String())
+			// Decode any custom source headers forwarded by the client
+			// (e.g. X-Auth-Token for OpenStack Glance). The value is a
+			// base64-encoded JSON map[string][]string sent in the
+			// X-Import-Src-Headers request header.
+			var srcHeaders http.Header
+			if enc := r.Header.Get("X-Import-Src-Headers"); enc != "" {
+				srcHeaders, err = decodeImportSrcHeaders(enc)
+				if err != nil {
+					return errdefs.InvalidParameter(errors.Wrap(err, "invalid X-Import-Src-Headers value"))
+				}
+			}
+
+			resp, err := remotecontext.GetWithHeadersAndStatusError(u.String(), srcHeaders)
 			if err != nil {
 				return err
 			}
@@ -714,4 +728,19 @@ func validateRepoName(name reference.Named) error {
 		return fmt.Errorf("'%s' is a reserved name", familiarName)
 	}
 	return nil
+}
+
+// decodeImportSrcHeaders reverses the encoding applied by the client's
+// encodeImportSrcHeaders: the value of the X-Import-Src-Headers HTTP header
+// is a base64-URL-encoded JSON map[string][]string.
+func decodeImportSrcHeaders(encoded string) (http.Header, error) {
+	b, err := base64.URLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+	var h map[string][]string
+	if err := json.Unmarshal(b, &h); err != nil {
+		return nil, err
+	}
+	return http.Header(h), nil
 }

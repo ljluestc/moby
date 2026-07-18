@@ -44,7 +44,25 @@ func downloadRemote(remoteURL string) (string, io.ReadCloser, error) {
 // GetWithStatusError does an http.Get() and returns an error if the
 // status code is 4xx or 5xx.
 func GetWithStatusError(address string) (*http.Response, error) {
-	resp, err := http.Get(address) // #nosec G107 -- ignore G107: Potential HTTP request made with variable url
+	return GetWithHeadersAndStatusError(address, nil)
+}
+
+// GetWithHeadersAndStatusError performs an HTTP GET request to address,
+// merging extraHeaders into the outbound request, and returns an error if the
+// response status code is 4xx or 5xx.  A nil or empty extraHeaders is valid
+// and produces the same behaviour as GetWithStatusError.
+func GetWithHeadersAndStatusError(address string, extraHeaders http.Header) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, address, nil) // #nosec G107
+	if err != nil {
+		return nil, errdefs.InvalidParameter(err)
+	}
+	for k, vs := range extraHeaders {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if uErr, ok := err.(*url.Error); ok {
 			if dErr, ok := uErr.Err.(*net.DNSError); ok && !dErr.IsTimeout {

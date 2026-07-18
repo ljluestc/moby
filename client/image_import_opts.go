@@ -18,4 +18,11 @@ type ImageImportOptions struct {
 	Message  string           // Message is the message to tag the image with
 	Changes  []string         // Changes are the raw changes to apply to this image
 	Platform ocispec.Platform // Platform is the target platform of the image
+	// SourceHeaders are HTTP headers to be forwarded verbatim to the source
+	// URL when the image is imported from a remote URL (i.e. fromSrc is not
+	// "-"). This allows importing from HTTP-authenticated endpoints such as
+	// OpenStack Glance, where every request must carry an X-Auth-Token header.
+	// The map is only consulted when SourceName in ImageImportSource is a URL;
+	// it is silently ignored for stdin imports.
+	SourceHeaders map[string][]string
 }
